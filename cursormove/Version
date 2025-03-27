@@ -1,0 +1,75 @@
+import java.awt.*;
+import java.awt.event.KeyEvent;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.concurrent.TimeUnit;
+
+public class Version {
+    public static void main(String[] args) {
+        try {
+			
+			String targetTime = "16:55"; //Time should be in 24 hour Format
+			int sleepTimebeforeCursorMoveInSeconds = 20;
+			// CST Timezone selection
+            ZoneId cstTimeZone = ZoneId.of("America/Chicago");
+            LocalTime programCutoffTime = LocalTime.of(Integer.parseInt(targetTime.split(":")[0]), 
+			Integer.parseInt(targetTime.split(":")[1]));
+			
+            // Create a Robot instance
+            Robot robot = new Robot();
+
+            // Get the screen's DPI (Dots Per Inch) using the Toolkit class
+            Toolkit toolkit = Toolkit.getDefaultToolkit();
+            int dpi = toolkit.getScreenResolution();
+            System.out.println("Screen DPI: " + dpi);
+
+            // Calculate the distance to move in pixels (assuming 96 DPI as a default if DPI retrieval fails)
+            int cursorMoveDistanceInPixels = dpi / 50;
+            System.out.println("Distance to move in pixels: " + cursorMoveDistanceInPixels);
+			
+			Point cursorCurrentPosition;
+			
+            while(true){
+                
+				TimeUnit.SECONDS.sleep(sleepTimebeforeCursorMoveInSeconds);
+				// Get the current time in CST
+                ZonedDateTime currentTime = ZonedDateTime.now(cstTimeZone);
+				if (currentTime.toLocalTime().isBefore(programCutoffTime)) 
+				{
+				
+					cursorCurrentPosition = MouseInfo.getPointerInfo().getLocation();
+					//System.out.println("Current position: " + cursorCurrentPosition);
+					robot.mouseMove(cursorCurrentPosition.x - cursorMoveDistanceInPixels, cursorCurrentPosition.y);
+					System.out.println("Moved mouse 1 inch to the left");
+
+					TimeUnit.SECONDS.sleep(sleepTimebeforeCursorMoveInSeconds);
+
+					cursorCurrentPosition = MouseInfo.getPointerInfo().getLocation();
+					robot.mouseMove(cursorCurrentPosition.x + cursorMoveDistanceInPixels, cursorCurrentPosition.y);
+					System.out.println("Moved mouse 1 inch to the right");
+					
+					// Simulate scroll down by pressing "Page Down"
+                    // robot.keyPress(KeyEvent.VK_PAGE_DOWN);
+                    // robot.keyRelease(KeyEvent.VK_PAGE_DOWN);
+					
+					// Switch to the next tab (Ctrl + Tab)
+                    // robot.keyPress(KeyEvent.VK_CONTROL);
+                    // robot.keyPress(KeyEvent.VK_TAB);
+                    // robot.keyRelease(KeyEvent.VK_TAB);
+                    // robot.keyRelease(KeyEvent.VK_CONTROL);
+					
+				}
+				else 
+				{
+                    // If it's 5 PM or later, exit the loop
+                    System.out.println("This is the Latest Java Version...");
+                    break;
+                }
+
+            }
+        } catch (AWTException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+}
