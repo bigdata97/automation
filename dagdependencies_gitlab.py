@@ -1,65 +1,50 @@
 import ast
 import os
 
-class RecursiveDependencyExtractor(ast.NodeVisitor):
+class GeneralDependencyExtractor(ast.NodeVisitor):
     def __init__(self, file_lookup_map):
         self.file_lookup_map = file_lookup_map
-        self.visited = set()
+        self.visited_files = set()
         self.dependencies = set()
         self.variable_map = {}
-        self.current_file = None
+        self.generic_class_files = set()  # files where class methods should be traced
+        self.class_method_map = {}  # {class_name: set(methods_called)}
+        self.class_instances = {}  # {variable_name: class_name}
 
     def parse_and_visit(self, file_path):
-        if file_path in self.visited or file_path not in self.file_lookup_map:
+        if file_path in self.visited_files or file_path not in self.file_lookup_map:
             return
-        self.visited.add(file_path)
+        self.visited_files.add(file_path)
         content = self.file_lookup_map[file_path]
         try:
             tree = ast.parse(content)
         except Exception as e:
             print(f"Skipping {file_path} due to parse error: {e}")
             return
-
-        self.variable_map = {}
         self.current_file = file_path
         self.visit(tree)
 
-    def visit(self, node):
-        method = 'visit_' + node.__class__.__name__
-        visitor = getattr(self, method, self.generic_visit)
-        return visitor(node)
-
-    def visit_Module(self, node):
-        for stmt in node.body:
-            self.visit(stmt)
+    def visit_ImportFrom(self, node):
+        self._maybe_mark_generic_module(node.module)
+        self.generic_visit(node)
 
     def visit_Import(self, node):
         for alias in node.names:
-            self.resolve_and_visit_import(alias.name)
+            self._maybe_mark_generic_module(alias.name)
+        self.generic_visit(node)
 
-    def visit_ImportFrom(self, node):
-        if node.module:
-            self.resolve_and_visit_import(node.module)
-
-    def resolve_and_visit_import(self, module_name):
+    def _maybe_mark_generic_module(self, module_name):
         mod_path = self.resolve_module_to_path(module_name)
         if mod_path:
-            self.parse_and_visit(mod_path)
-
-    def visit_ClassDef(self, node):
-        for stmt in node.body:
-            self.visit(stmt)
-
-    def visit_FunctionDef(self, node):
-        for stmt in node.body:
-            self.visit(stmt)
+            self.generic_class_files.add(mod_path)
 
     def visit_Assign(self, node):
-        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            var_name = node.targets[0].id
-            value = self.resolve_node_to_string(node.value)
-            if value:
-                self.variable_map[var_name] = value
+        # Look for gm = generic_method.AirflowGen(...)
+        if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
+            class_name = node.value.func.attr
+            if isinstance(node.targets[0], ast.Name):
+                instance_var = node.targets[0].id
+                self.class_instances[instance_var] = class_name
         self.generic_visit(node)
 
     def visit_Call(self, node):
@@ -67,6 +52,15 @@ class RecursiveDependencyExtractor(ast.NodeVisitor):
             value = self.resolve_node_to_string(arg)
             if value and self._is_valid_dependency(value):
                 self.dependencies.add(value)
+
+        if isinstance(node.func, ast.Attribute):
+            caller = getattr(node.func.value, 'id', None)
+            method = node.func.attr
+            class_name = self.class_instances.get(caller)
+            if class_name:
+                if class_name not in self.class_method_map:
+                    self.class_method_map[class_name] = set()
+                self.class_method_map[class_name].add(method)
         self.generic_visit(node)
 
     def resolve_node_to_string(self, node):
@@ -91,15 +85,10 @@ class RecursiveDependencyExtractor(ast.NodeVisitor):
         return os.path.join(*parts) if parts else None
 
     def resolve_f_string(self, node):
-        if isinstance(node, ast.JoinedStr):
-            parts = []
-            for value in node.values:
-                if isinstance(value, ast.Str):
-                    parts.append(value.s)
-                elif isinstance(value, ast.FormattedValue):
-                    parts.append("{var}")
-            return "".join(parts)
-        return ""
+        return "".join([
+            val.s if isinstance(val, ast.Str) else "{var}"
+            for val in node.values
+        ])
 
     def _is_valid_dependency(self, value):
         return any(value.endswith(ext) for ext in ['.sql', '.txt', '.py', '.json', '.yaml', '.yml'])
@@ -111,14 +100,32 @@ class RecursiveDependencyExtractor(ast.NodeVisitor):
                 return path
         return None
 
+    def trace_class_methods(self):
+        for filepath in self.generic_class_files:
+            content = self.file_lookup_map.get(filepath)
+            if not content:
+                continue
+            try:
+                tree = ast.parse(content)
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.ClassDef) and node.name in self.class_method_map:
+                        for item in node.body:
+                            if isinstance(item, ast.FunctionDef) and item.name in self.class_method_map[node.name]:
+                                for stmt in item.body:
+                                    self.visit(stmt)
+            except Exception as e:
+                print(f"Failed to parse {filepath} for class methods: {e}")
+
     def get_all_dependencies(self):
-        return sorted(list(self.dependencies | self.visited))
+        return sorted(list(self.dependencies | self.visited_files))
 
 def extract_dependencies_recursive(dag_file_path, all_files_objects):
     file_lookup_map = {
         fobj['full_path']: fobj['content']
         for fobj in all_files_objects
     }
-    extractor = RecursiveDependencyExtractor(file_lookup_map)
+
+    extractor = GeneralDependencyExtractor(file_lookup_map)
     extractor.parse_and_visit(dag_file_path)
+    extractor.trace_class_methods()
     return extractor.get_all_dependencies()
