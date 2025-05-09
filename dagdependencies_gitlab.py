@@ -6,80 +6,88 @@ class RecursiveDependencyExtractor(ast.NodeVisitor):
         self.file_lookup_map = file_lookup_map
         self.visited = set()
         self.dependencies = set()
-        self.imported_files = []
         self.variable_map = {}
+        self.current_file = None
 
     def parse_and_visit(self, file_path):
         if file_path in self.visited or file_path not in self.file_lookup_map:
             return
         self.visited.add(file_path)
         content = self.file_lookup_map[file_path]
-
         try:
             tree = ast.parse(content)
         except Exception as e:
             print(f"Skipping {file_path} due to parse error: {e}")
             return
 
-        self.current_file = file_path
         self.variable_map = {}
+        self.current_file = file_path
         self.visit(tree)
+
+    def visit(self, node):
+        method = 'visit_' + node.__class__.__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node)
+
+    def visit_Module(self, node):
+        for stmt in node.body:
+            self.visit(stmt)
 
     def visit_Import(self, node):
         for alias in node.names:
-            mod_path = self.resolve_module_to_path(alias.name)
-            if mod_path:
-                self.imported_files.append(mod_path)
-                self.parse_and_visit(mod_path)
+            self.resolve_and_visit_import(alias.name)
 
     def visit_ImportFrom(self, node):
         if node.module:
-            mod_path = self.resolve_module_to_path(node.module)
-            if mod_path:
-                self.imported_files.append(mod_path)
-                self.parse_and_visit(mod_path)
+            self.resolve_and_visit_import(node.module)
+
+    def resolve_and_visit_import(self, module_name):
+        mod_path = self.resolve_module_to_path(module_name)
+        if mod_path:
+            self.parse_and_visit(mod_path)
+
+    def visit_ClassDef(self, node):
+        for stmt in node.body:
+            self.visit(stmt)
+
+    def visit_FunctionDef(self, node):
+        for stmt in node.body:
+            self.visit(stmt)
 
     def visit_Assign(self, node):
-        if isinstance(node.targets[0], ast.Name):
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             var_name = node.targets[0].id
-            value = node.value
-            if isinstance(value, ast.Str):
-                self.variable_map[var_name] = value.s
-            elif isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute):
-                if value.func.attr == 'join':
-                    joined = self.resolve_os_path_join(value)
-                    if joined:
-                        self.variable_map[var_name] = joined
-            elif isinstance(value, ast.JoinedStr):  # f-strings
-                fstring = self.resolve_f_string(value)
-                if fstring:
-                    self.variable_map[var_name] = fstring
+            value = self.resolve_node_to_string(node.value)
+            if value:
+                self.variable_map[var_name] = value
         self.generic_visit(node)
 
     def visit_Call(self, node):
         for arg in node.args:
-            if isinstance(arg, ast.Str):
-                if self._is_valid_dependency(arg.s):
-                    self.dependencies.add(arg.s)
-            elif isinstance(arg, ast.Name):
-                var_name = arg.id
-                if var_name in self.variable_map:
-                    resolved_value = self.variable_map[var_name]
-                    if self._is_valid_dependency(resolved_value):
-                        self.dependencies.add(resolved_value)
-            elif isinstance(arg, ast.JoinedStr):  # direct f-string usage
-                fstring = self.resolve_f_string(arg)
-                if self._is_valid_dependency(fstring):
-                    self.dependencies.add(fstring)
+            value = self.resolve_node_to_string(arg)
+            if value and self._is_valid_dependency(value):
+                self.dependencies.add(value)
         self.generic_visit(node)
 
+    def resolve_node_to_string(self, node):
+        if isinstance(node, ast.Str):
+            return node.s
+        elif isinstance(node, ast.JoinedStr):
+            return self.resolve_f_string(node)
+        elif isinstance(node, ast.Name):
+            return self.variable_map.get(node.id)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute) and node.func.attr == 'join':
+                return self.resolve_os_path_join(node)
+        return None
+
     def resolve_os_path_join(self, call_node):
-        if not call_node.args:
-            return None
         parts = []
         for arg in call_node.args:
             if isinstance(arg, ast.Str):
                 parts.append(arg.s)
+            elif isinstance(arg, ast.Name) and arg.id in self.variable_map:
+                parts.append(self.variable_map[arg.id])
         return os.path.join(*parts) if parts else None
 
     def resolve_f_string(self, node):
@@ -99,19 +107,18 @@ class RecursiveDependencyExtractor(ast.NodeVisitor):
     def resolve_module_to_path(self, module_name):
         module_parts = module_name.split('.')
         for path in self.file_lookup_map:
-            if all(part in path for part in module_parts) and path.endswith('.py'):
+            if path.endswith('.py') and all(part in path for part in module_parts):
                 return path
         return None
 
     def get_all_dependencies(self):
-        return sorted(list(self.dependencies | self.visited | set(self.imported_files)))
+        return sorted(list(self.dependencies | self.visited))
 
 def extract_dependencies_recursive(dag_file_path, all_files_objects):
     file_lookup_map = {
         fobj['full_path']: fobj['content']
         for fobj in all_files_objects
     }
-
     extractor = RecursiveDependencyExtractor(file_lookup_map)
     extractor.parse_and_visit(dag_file_path)
     return extractor.get_all_dependencies()
