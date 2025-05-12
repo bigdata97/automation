@@ -1,9 +1,9 @@
 import ast
 
-def extract_dag_dependencies_dynamic(target_dag_obj, repo_files_list):
+def extract_dag_dependencies_precise(target_dag_obj, repo_files_list):
     dag_code = target_dag_obj.FileContent
 
-    # Step 1: Extract all gm.function_name() calls
+    # Step 1: Get gm.function() calls from DAG
     class GMCallVisitor(ast.NodeVisitor):
         def __init__(self):
             self.methods = set()
@@ -14,67 +14,69 @@ def extract_dag_dependencies_dynamic(target_dag_obj, repo_files_list):
                     self.methods.add(node.func.attr)
             self.generic_visit(node)
 
-    dag_tree = ast.parse(dag_code)
-    gm_visitor = GMCallVisitor()
-    gm_visitor.visit(dag_tree)
-    called_methods = gm_visitor.methods
+    dag_ast = ast.parse(dag_code)
+    call_visitor = GMCallVisitor()
+    call_visitor.visit(dag_ast)
+    called_methods = call_visitor.methods
 
-    # Step 2: Find and parse the generic_method.py class (AirflowGen)
-    airflowgen_file = next((obj for obj in repo_files_list if "class AirflowGen" in obj.FileContent), None)
-    if not airflowgen_file:
-        raise ValueError("AirflowGen class not found in any file.")
+    # Step 2: Locate generic_method.py (AirflowGen class)
+    generic_file_obj = next((obj for obj in repo_files_list if "class AirflowGen" in obj.FileContent), None)
+    if not generic_file_obj:
+        raise ValueError("Could not find AirflowGen class in provided files.")
 
-    airflowgen_code = airflowgen_file.FileContent
-    airflowgen_ast = ast.parse(airflowgen_code)
+    generic_code = generic_file_obj.FileContent
+    generic_ast = ast.parse(generic_code)
 
-    # Step 3: Extract __init__ variable values: self.var = 'script_path'
-    init_var_values = {}
-
+    # Step 3: Extract self.variable = 'path' from __init__
     class InitVarExtractor(ast.NodeVisitor):
         def __init__(self):
-            self.mapping = {}
+            self.var_to_path = {}
 
         def visit_Assign(self, node):
-            if (len(node.targets) == 1 and isinstance(node.targets[0], ast.Attribute)
+            if (
+                isinstance(node.targets[0], ast.Attribute)
                 and isinstance(node.targets[0].value, ast.Name)
                 and node.targets[0].value.id == "self"
-                and isinstance(node.value, ast.Str)):
-                self.mapping[node.targets[0].attr] = node.value.s
+                and isinstance(node.value, ast.Str)
+            ):
+                self.var_to_path[node.targets[0].attr] = node.value.s
             self.generic_visit(node)
 
-    # Step 4: Map method -> variable (from gm.method -> uses self.variable internally)
-    method_to_variable = {}
+    init_var_mapping = {}
+    method_to_var = {}
 
-    class MethodToVarMapper(ast.NodeVisitor):
-        def __init__(self):
-            self.mapping = {}
-
-        def visit_FunctionDef(self, node):
-            method_name = node.name
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Attribute):
-                    if isinstance(sub.value, ast.Name) and sub.value.id == "self":
-                        self.mapping[method_name] = sub.attr  # method uses this variable
-                        break
-            self.generic_visit(node)
-
-    for node in airflowgen_ast.body:
+    for node in generic_ast.body:
         if isinstance(node, ast.ClassDef) and node.name == "AirflowGen":
-            for item in node.body:
-                if isinstance(item, ast.FunctionDef) and item.name == "__init__":
-                    init_extractor = InitVarExtractor()
-                    init_extractor.visit(item)
-                    init_var_values = init_extractor.mapping
-                elif isinstance(item, ast.FunctionDef):
-                    mapper = MethodToVarMapper()
-                    mapper.visit(item)
-                    method_to_variable.update(mapper.mapping)
+            for sub_node in node.body:
+                if isinstance(sub_node, ast.FunctionDef):
+                    if sub_node.name == "__init__":
+                        init_extractor = InitVarExtractor()
+                        init_extractor.visit(sub_node)
+                        init_var_mapping = init_extractor.var_to_path
+                    elif sub_node.name in called_methods:
+                        # Step 4: Find cmds = ['python', self.xyz, ...]
+                        for stmt in sub_node.body:
+                            if isinstance(stmt, ast.Assign):
+                                if isinstance(stmt.targets[0], ast.Name) and stmt.targets[0].id == "cmds":
+                                    if isinstance(stmt.value, ast.List):
+                                        elements = stmt.value.elts
+                                        for i in range(len(elements) - 1):
+                                            if (
+                                                isinstance(elements[i], ast.Str)
+                                                and elements[i].s == "python"
+                                                and isinstance(elements[i+1], ast.Attribute)
+                                                and isinstance(elements[i+1].value, ast.Name)
+                                                and elements[i+1].value.id == "self"
+                                            ):
+                                                method_to_var[sub_node.name] = elements[i+1].attr
+                                                break
 
-    # Step 5: Build dependency list
+    # Step 5: Map method → variable → script path
     dependencies = []
     for method in called_methods:
-        var_used = method_to_variable.get(method)
-        if var_used and var_used in init_var_values:
-            dependencies.append(init_var_values[var_used])
+        var_name = method_to_var.get(method)
+        if var_name and var_name in init_var_mapping:
+            dependencies.append(init_var_mapping[var_name])
 
-    return dependencies
+    # Step 6: Return unique, sorted list
+    return sorted(set(dependencies))
