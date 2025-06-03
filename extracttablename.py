@@ -1,13 +1,12 @@
 import os
 import re
 import csv
-import shutil
 from pathlib import Path
 
 def extract_sql_blocks(content):
     sql_blocks = []
 
-    # Look for SQL string assignments (e.g., sql = """ SELECT * FROM ... """)
+    # Look for multiline or inline SQL query definitions
     string_sql_blocks = re.findall(r'(?:sql|query)\s*=\s*[rRuU]?("""|\'\'\'|["\'])(.*?)(\1)', content, re.DOTALL)
     for _, block, _ in string_sql_blocks:
         if 'SELECT' in block.upper() or 'INSERT' in block.upper() or 'CREATE' in block.upper():
@@ -19,23 +18,24 @@ def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
     input_tables = set()
     output_tables = set()
 
-    # Extract output tables: INSERT INTO, CREATE TABLE, CREATE OR REPLACE TABLE/VIEW
+    # Capture output tables (create, insert, etc.)
     for match in output_pattern.findall(sql_text):
         table = match.strip().strip(',').strip('"').strip("'")
         if table:
             output_tables.add(table)
 
-    # Extract input tables from top-level and WITH CTE blocks
-    # Capture each CTE if present
-    with_ctes = re.findall(r'\bWITH\b\s+(.*?)(?=\bSELECT|\Z)', sql_text, re.IGNORECASE | re.DOTALL)
-    if with_ctes:
-        for cte_block in with_ctes:
-            for match in input_pattern.findall(cte_block):
+    # Capture subqueries inside WITH clause
+    with_clause_match = re.search(r'\bWITH\b\s+(.*?)(\bSELECT\b|\Z)', sql_text, re.IGNORECASE | re.DOTALL)
+    if with_clause_match:
+        with_clause_sql = with_clause_match.group(1)
+        cte_queries = re.findall(r'AS\s*\((.*?)\)', with_clause_sql, re.IGNORECASE | re.DOTALL)
+        for cte_sql in cte_queries:
+            for match in input_pattern.findall(cte_sql):
                 table = match.strip().strip(',').strip('"').strip("'")
                 if table:
                     input_tables.add(table)
 
-    # Now extract inputs from rest of the query
+    # Capture main query input tables
     for match in input_pattern.findall(sql_text):
         table = match.strip().strip(',').strip('"').strip("'")
         if table:
@@ -44,7 +44,6 @@ def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
     return list(input_tables), list(output_tables)
 
 def extract_sql_table_info(repo_path, output_file):
-    # Enhanced patterns
     input_pattern = re.compile(r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.`"]+)', re.IGNORECASE)
     output_pattern = re.compile(
         r'\b(?:INSERT\s+INTO|CREATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE|CREATE\s+OR\s+REPLACE\s+VIEW|MERGE\s+INTO|REPLACE\s+TABLE)\s+([a-zA-Z0-9_.`"]+)',
@@ -90,7 +89,7 @@ def extract_sql_table_info(repo_path, output_file):
 
 # Example usage
 if __name__ == "__main__":
-    git_repo_path = Path("/path/to/your/cloned/git/repo")  # Update this path
+    git_repo_path = Path("/path/to/your/cloned/git/repo")  # 🔁 Update this path
     output_csv = git_repo_path / "table_names.csv"
 
     if output_csv.exists():
