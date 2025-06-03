@@ -74,4 +74,27 @@ def extract_sql_table_info(repo_path, output_file):
                             found_match = True
 
                         for table in output_tables:
-                            table_data.append([rel]()_
+                            table_data.append([relative_path, file_ext, file, table, 'Output'])
+                            found_match = True
+
+                    if not found_match:
+                        table_data.append([relative_path, file_ext, file, "N/A", "No Matches"])
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
+                continue
+
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['FilePath', 'FileType', 'FileName', 'Table_Name', 'Type of Table'])
+        writer.writerows(table_data)
+
+# Example usage
+if __name__ == "__main__":
+    git_repo_path = Path("/path/to/your/cloned/git/repo")  # Update this path
+    output_csv = git_repo_path / "table_names.csv"
+
+    if output_csv.exists():
+        output_csv.unlink()
+
+    extract_sql_table_info(git_repo_path, output_csv)
+    print(f"✅ Extracted table names written to: {output_csv}")
