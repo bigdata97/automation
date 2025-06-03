@@ -7,7 +7,7 @@ def extract_sql_blocks(content):
     sql_blocks = []
 
     # Look for multiline or inline SQL query definitions
-    string_sql_blocks = re.findall(r'(?:sql|query)\s*=\s*[rRuU]?("""|\'\'\'|["\'])(.*?)(\1)', content, re.DOTALL)
+    string_sql_blocks = re.findall(r'(?:sql|query)\\s*=\\s*[rRuU]?(\"\"\"|\\'\\'\\'|[\"\\'])(.*?)(\\1)', content, re.DOTALL)
     for _, block, _ in string_sql_blocks:
         if 'SELECT' in block.upper() or 'INSERT' in block.upper() or 'CREATE' in block.upper():
             sql_blocks.append(block)
@@ -17,36 +17,37 @@ def extract_sql_blocks(content):
 def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
     input_tables = set()
     output_tables = set()
+    cte_names = set()
 
-    # Capture output tables (create, insert, etc.)
+    # Extract output tables like CREATE TABLE, INSERT INTO, etc.
     for match in output_pattern.findall(sql_text):
-        table = match.strip().strip(',').strip('"').strip("'")
-        if table:
-            output_tables.add(table)
+        output_tables.add(match.strip())
 
-    # Capture subqueries inside WITH clause
-    with_clause_match = re.search(r'\bWITH\b\s+(.*?)(\bSELECT\b|\Z)', sql_text, re.IGNORECASE | re.DOTALL)
-    if with_clause_match:
-        with_clause_sql = with_clause_match.group(1)
-        cte_queries = re.findall(r'AS\s*\((.*?)\)', with_clause_sql, re.IGNORECASE | re.DOTALL)
-        for cte_sql in cte_queries:
-            for match in input_pattern.findall(cte_sql):
-                table = match.strip().strip(',').strip('"').strip("'")
-                if table:
-                    input_tables.add(table)
+    # Correctly extract all CTEs and their SQL blocks
+    cte_blocks = re.findall(r'(\\w+)\\s+AS\\s*\\((.*?)\\)\\s*(?:,|$)', sql_text, re.IGNORECASE | re.DOTALL)
+    for cte_name, cte_sql in cte_blocks:
+        cte_name = cte_name.strip()
+        cte_names.add(cte_name)
+        for match in input_pattern.findall(cte_sql):
+            table = match.strip().strip(',').strip('\"').strip(\"'\")
+            if table:
+                input_tables.add(table)
 
-    # Capture main query input tables
+    # Exclude CTEs when identifying general input tables
     for match in input_pattern.findall(sql_text):
-        table = match.strip().strip(',').strip('"').strip("'")
-        if table:
+        table = match.strip().strip(',').strip('\"').strip(\"'\")
+        if table and table not in cte_names:
             input_tables.add(table)
+
+    # Include all CTEs as internal output tables
+    output_tables.update(cte_names)
 
     return list(input_tables), list(output_tables)
 
 def extract_sql_table_info(repo_path, output_file):
-    input_pattern = re.compile(r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.`"]+)', re.IGNORECASE)
+    input_pattern = re.compile(r'\\b(?:FROM|JOIN)\\s+([a-zA-Z0-9_.`\\"]+)', re.IGNORECASE)
     output_pattern = re.compile(
-        r'\b(?:INSERT\s+INTO|CREATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE|CREATE\s+OR\s+REPLACE\s+VIEW|MERGE\s+INTO|REPLACE\s+TABLE)\s+([a-zA-Z0-9_.`"]+)',
+        r'\\b(?:INSERT\\s+INTO|CREATE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+VIEW|MERGE\\s+INTO|REPLACE\\s+TABLE)\\s+([a-zA-Z0-9_.`\\"]+)',
         re.IGNORECASE
     )
 
@@ -86,14 +87,3 @@ def extract_sql_table_info(repo_path, output_file):
         writer = csv.writer(f)
         writer.writerow(['FilePath', 'FileType', 'FileName', 'Table_Name', 'Type of Table'])
         writer.writerows(table_data)
-
-# Example usage
-if __name__ == "__main__":
-    git_repo_path = Path("/path/to/your/cloned/git/repo")  # 🔁 Update this path
-    output_csv = git_repo_path / "table_names.csv"
-
-    if output_csv.exists():
-        output_csv.unlink()
-
-    extract_sql_table_info(git_repo_path, output_csv)
-    print(f"✅ Extracted table names written to: {output_csv}")
