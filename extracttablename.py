@@ -6,7 +6,6 @@ from pathlib import Path
 def extract_sql_blocks(content):
     sql_blocks = []
 
-    # Look for multiline or inline SQL query definitions
     string_sql_blocks = re.findall(r'(?:sql|query)\s*=\s*[rRuU]?(?:"""|\'\'\'|"|\')(.*?)(?:"""|\'\'\'|"|\')', content, re.DOTALL)
     for block in string_sql_blocks:
         if 'SELECT' in block.upper() or 'INSERT' in block.upper() or 'CREATE' in block.upper():
@@ -14,46 +13,60 @@ def extract_sql_blocks(content):
 
     return sql_blocks
 
+def is_parameterized(table_name):
+    return any(sym in table_name for sym in ['<', '>', '#'])
+
 def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
-    input_tables = set()
-    output_tables = set()
+    input_tables = []
+    output_tables = []
     cte_names = set()
 
-    # Extract output tables: CREATE/INSERT/MERGE/REPLACE
+    # Output tables from CREATE/INSERT/etc.
     for match in output_pattern.findall(sql_text):
-        output_tables.add(match.strip())
+        table = match.strip()
+        tag = 'output-unresolved' if is_parameterized(table) else 'Output'
+        output_tables.append((table, tag))
 
-    # Add DROP and DELETE tables as output
-    drop_delete_matches = re.findall(r'\b(?:DROP\s+TABLE(?:\s+IF\s+EXISTS)?|DELETE\s+FROM)\s+([a-zA-Z0-9_.<>\[\]"]+)', sql_text, re.IGNORECASE)
-    output_tables.update([match.strip() for match in drop_delete_matches])
+    # DROP/DELETE tables
+    drop_delete_matches = re.findall(r'\b(?:DROP\s+TABLE(?:\s+IF\s+EXISTS)?|DELETE\s+FROM)\s+([a-zA-Z0-9_.<>\[\]#"]+)', sql_text, re.IGNORECASE)
+    for match in drop_delete_matches:
+        table = match.strip()
+        tag = 'output-unresolved'
+        output_tables.append((table, tag))
 
-    # Add parameterized CREATE TABLEs like <SCHEMA>.<TABLE>
-    parameterized_matches = re.findall(r'CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+([<>\w.]+)', sql_text, re.IGNORECASE)
-    output_tables.update([match.strip() for match in parameterized_matches])
+    # Parameterized CREATE TABLEs
+    param_matches = re.findall(r'CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+([<>\w.#]+)', sql_text, re.IGNORECASE)
+    for match in param_matches:
+        table = match.strip()
+        if is_parameterized(table):
+            output_tables.append((table, 'output-unresolved'))
 
-    # Extract CTEs
+    # CTEs
     cte_blocks = re.findall(r'(\w+)\s+AS\s*\((.*?)\)\s*(?:,|$)', sql_text, re.IGNORECASE | re.DOTALL)
     for cte_name, cte_sql in cte_blocks:
-        cte_name = cte_name.strip()
-        cte_names.add(cte_name)
+        cte_names.add(cte_name.strip())
         for match in input_pattern.findall(cte_sql):
             table = match.strip()
-            if table:
-                input_tables.add(table)
+            tag = 'input-unresolved' if is_parameterized(table) else 'Input'
+            input_tables.append((table, tag))
 
-    # General input tables, excluding CTE names
+    # General input tables (excluding CTEs)
     for match in input_pattern.findall(sql_text):
         table = match.strip()
-        if table and table not in cte_names:
-            input_tables.add(table)
+        if table not in cte_names:
+            tag = 'input-unresolved' if is_parameterized(table) else 'Input'
+            input_tables.append((table, tag))
 
-    output_tables.update(cte_names)
-    return list(input_tables), list(output_tables)
+    # CTEs are outputs
+    for cte in cte_names:
+        output_tables.append((cte, 'Output'))
+
+    return input_tables, output_tables
 
 def extract_sql_table_info(repo_path, output_file):
-    input_pattern = re.compile(r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.<>\[\]"]+)', re.IGNORECASE)
+    input_pattern = re.compile(r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.<>\[\]#"]+)', re.IGNORECASE)
     output_pattern = re.compile(
-        r'\b(?:INSERT\s+INTO|CREATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE|CREATE\s+OR\s+REPLACE\s+VIEW|MERGE\s+INTO|REPLACE\s+TABLE)\s+([a-zA-Z0-9_.<>\[\]"]+)',
+        r'\b(?:INSERT\s+INTO|CREATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE|CREATE\s+OR\s+REPLACE\s+VIEW|MERGE\s+INTO|REPLACE\s+TABLE)\s+([a-zA-Z0-9_.<>\[\]#"]+)',
         re.IGNORECASE
     )
 
@@ -68,19 +81,18 @@ def extract_sql_table_info(repo_path, output_file):
             try:
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
-
                     sql_blocks = [content] if file_ext == ".sql" else extract_sql_blocks(content)
                     found_match = False
 
                     for sql in sql_blocks:
                         input_tables, output_tables = extract_tables_from_sql(sql, input_pattern, output_pattern)
 
-                        for table in input_tables:
-                            table_data.append([relative_path, file_ext, file, table, 'Input'])
+                        for table, tag in input_tables:
+                            table_data.append([relative_path, file_ext, file, table, tag])
                             found_match = True
 
-                        for table in output_tables:
-                            table_data.append([relative_path, file_ext, file, table, 'Output'])
+                        for table, tag in output_tables:
+                            table_data.append([relative_path, file_ext, file, table, tag])
                             found_match = True
 
                     if not found_match:
