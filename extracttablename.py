@@ -7,8 +7,8 @@ def extract_sql_blocks(content):
     sql_blocks = []
 
     # Look for multiline or inline SQL query definitions
-    string_sql_blocks = re.findall(r'(?:sql|query)\\s*=\\s*[rRuU]?(\"\"\"|\\'\\'\\'|[\"\\'])(.*?)(\\1)', content, re.DOTALL)
-    for _, block, _ in string_sql_blocks:
+    string_sql_blocks = re.findall(r'(?:sql|query)\s*=\s*[rRuU]?(?:"""|\'\'\'|"|\')(.*?)(?:"""|\'\'\'|"|\')', content, re.DOTALL)
+    for block in string_sql_blocks:
         if 'SELECT' in block.upper() or 'INSERT' in block.upper() or 'CREATE' in block.upper():
             sql_blocks.append(block)
 
@@ -24,15 +24,15 @@ def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
         output_tables.add(match.strip())
 
     # Add DROP and DELETE tables as output
-    drop_delete_matches = re.findall(r'\\b(?:DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?|DELETE\\s+FROM)\\s+([a-zA-Z0-9_.<>\[\]"]+)', sql_text, re.IGNORECASE)
+    drop_delete_matches = re.findall(r'\b(?:DROP\s+TABLE(?:\s+IF\s+EXISTS)?|DELETE\s+FROM)\s+([a-zA-Z0-9_.<>\[\]"]+)', sql_text, re.IGNORECASE)
     output_tables.update([match.strip() for match in drop_delete_matches])
 
     # Add parameterized CREATE TABLEs like <SCHEMA>.<TABLE>
-    parameterized_matches = re.findall(r'CREATE\\s+(?:OR\\s+REPLACE\\s+)?TABLE\\s+([<>\w.]+)', sql_text, re.IGNORECASE)
+    parameterized_matches = re.findall(r'CREATE\s+(?:OR\s+REPLACE\s+)?TABLE\s+([<>\w.]+)', sql_text, re.IGNORECASE)
     output_tables.update([match.strip() for match in parameterized_matches])
 
     # Extract CTEs
-    cte_blocks = re.findall(r'(\\w+)\\s+AS\\s*\\((.*?)\\)\\s*(?:,|$)', sql_text, re.IGNORECASE | re.DOTALL)
+    cte_blocks = re.findall(r'(\w+)\s+AS\s*\((.*?)\)\s*(?:,|$)', sql_text, re.IGNORECASE | re.DOTALL)
     for cte_name, cte_sql in cte_blocks:
         cte_name = cte_name.strip()
         cte_names.add(cte_name)
@@ -51,9 +51,9 @@ def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
     return list(input_tables), list(output_tables)
 
 def extract_sql_table_info(repo_path, output_file):
-    input_pattern = re.compile(r'\\b(?:FROM|JOIN)\\s+([a-zA-Z0-9_.<>\[\]"]+)', re.IGNORECASE)
+    input_pattern = re.compile(r'\b(?:FROM|JOIN)\s+([a-zA-Z0-9_.<>\[\]"]+)', re.IGNORECASE)
     output_pattern = re.compile(
-        r'\\b(?:INSERT\\s+INTO|CREATE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+VIEW|MERGE\\s+INTO|REPLACE\\s+TABLE)\\s+([a-zA-Z0-9_.<>\[\]"]+)',
+        r'\b(?:INSERT\s+INTO|CREATE\s+TABLE|CREATE\s+OR\s+REPLACE\s+TABLE|CREATE\s+OR\s+REPLACE\s+VIEW|MERGE\s+INTO|REPLACE\s+TABLE)\s+([a-zA-Z0-9_.<>\[\]"]+)',
         re.IGNORECASE
     )
 
