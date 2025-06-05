@@ -19,35 +19,41 @@ def extract_tables_from_sql(sql_text, input_pattern, output_pattern):
     output_tables = set()
     cte_names = set()
 
-    # Extract output tables like CREATE TABLE, INSERT INTO, etc.
+    # Extract output tables: CREATE/INSERT/MERGE/REPLACE
     for match in output_pattern.findall(sql_text):
         output_tables.add(match.strip())
 
-    # Correctly extract all CTEs and their SQL blocks
+    # Add DROP and DELETE tables as output
+    drop_delete_matches = re.findall(r'\\b(?:DROP\\s+TABLE(?:\\s+IF\\s+EXISTS)?|DELETE\\s+FROM)\\s+([a-zA-Z0-9_.<>\[\]"]+)', sql_text, re.IGNORECASE)
+    output_tables.update([match.strip() for match in drop_delete_matches])
+
+    # Add parameterized CREATE TABLEs like <SCHEMA>.<TABLE>
+    parameterized_matches = re.findall(r'CREATE\\s+(?:OR\\s+REPLACE\\s+)?TABLE\\s+([<>\w.]+)', sql_text, re.IGNORECASE)
+    output_tables.update([match.strip() for match in parameterized_matches])
+
+    # Extract CTEs
     cte_blocks = re.findall(r'(\\w+)\\s+AS\\s*\\((.*?)\\)\\s*(?:,|$)', sql_text, re.IGNORECASE | re.DOTALL)
     for cte_name, cte_sql in cte_blocks:
         cte_name = cte_name.strip()
         cte_names.add(cte_name)
         for match in input_pattern.findall(cte_sql):
-            table = match.strip().strip(',').strip('\"').strip(\"'\")
+            table = match.strip()
             if table:
                 input_tables.add(table)
 
-    # Exclude CTEs when identifying general input tables
+    # General input tables, excluding CTE names
     for match in input_pattern.findall(sql_text):
-        table = match.strip().strip(',').strip('\"').strip(\"'\")
+        table = match.strip()
         if table and table not in cte_names:
             input_tables.add(table)
 
-    # Include all CTEs as internal output tables
     output_tables.update(cte_names)
-
     return list(input_tables), list(output_tables)
 
 def extract_sql_table_info(repo_path, output_file):
-    input_pattern = re.compile(r'\\b(?:FROM|JOIN)\\s+([a-zA-Z0-9_.`\\"]+)', re.IGNORECASE)
+    input_pattern = re.compile(r'\\b(?:FROM|JOIN)\\s+([a-zA-Z0-9_.<>\[\]"]+)', re.IGNORECASE)
     output_pattern = re.compile(
-        r'\\b(?:INSERT\\s+INTO|CREATE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+VIEW|MERGE\\s+INTO|REPLACE\\s+TABLE)\\s+([a-zA-Z0-9_.`\\"]+)',
+        r'\\b(?:INSERT\\s+INTO|CREATE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+TABLE|CREATE\\s+OR\\s+REPLACE\\s+VIEW|MERGE\\s+INTO|REPLACE\\s+TABLE)\\s+([a-zA-Z0-9_.<>\[\]"]+)',
         re.IGNORECASE
     )
 
