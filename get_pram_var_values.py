@@ -86,3 +86,66 @@ print("\n")
 for table in tablelist:
     t = resolve_table_name(table)
     print(f"{table=} ---> {t=}")
+
+
+
+
+
+import re
+import importlib.util
+import sys
+import os
+
+def resolve_module_from_sys_path(content, module_name):
+    # 1. Extract all sys.path.append() values
+    path_append_matches = re.findall(r'sys\.path\.append\((["\'])(.*?)\1\)', content)
+
+    for _, raw_path in path_append_matches:
+        # Convert to absolute path
+        abs_path = os.path.abspath(raw_path)
+        if abs_path not in sys.path:
+            sys.path.append(abs_path)
+
+        # 2. Try to locate the module in that path
+        candidate_path = os.path.join(abs_path, f"{module_name}.py")
+        if os.path.exists(candidate_path):
+            spec = importlib.util.spec_from_file_location(module_name, candidate_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+        # 3. If it's part of a package (i.e., subfolder/module)
+        pkg_path = os.path.join(abs_path, module_name, "__init__.py")
+        if os.path.exists(pkg_path):
+            spec = importlib.util.spec_from_file_location(module_name, pkg_path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+
+    # 4. Fallback to global importlib (may work if path is already in sys.path)
+    try:
+        spec = importlib.util.find_spec(module_name)
+        if spec and spec.origin:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    except Exception:
+        pass
+
+    # If not found
+    raise ImportError(f"Unable to locate or load module '{module_name}'")
+
+# ✅ Example usage:
+
+# Read your input file
+with open("test11.py", "r", encoding="utf-8") as f:
+    content = f.read()
+
+# Try to resolve config_file dynamically
+try:
+    config_file = resolve_module_from_sys_path(content, "config_file")
+except ImportError as e:
+    print(f"Error: {e}")
+
+
+
