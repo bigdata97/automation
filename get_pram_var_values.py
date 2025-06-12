@@ -1,142 +1,38 @@
+import os
 import re
 import importlib.util
-import pandas as pd
-import os
-import sys
+from pathlib import Path
 
-print(os.getcwd())
-
-pd.set_option('display.max_colwidth', None)
-pd.set_option('display.width', 0)
-pd.set_option('display.max_columns', None)
-
-# ---- Step 1: Read full file ----
-input_file = "test11.py"
-print(f"FULL_PATH={os.path.abspath(input_file)}")
-with open(input_file, "r", encoding="utf-8") as f:
-    content = f.read()
-    
-import re
-import importlib.util
-import sys
-import os
-
-def resolve_module_from_sys_path(content, module_name, base_file_path):
+def resolve_module_by_folder_name(content, module_name, base_file_path):
     """
-    - content: source code as string
-    - module_name: e.g., 'config_file'
-    - base_file_path: full path to the script being parsed (e.g., /drive/notebooks/test11.py)
+    - Extracts last folder from sys.path.append(...) (e.g., 'configs')
+    - Finds matching folder in repo
+    - Loads module (e.g., config_file.py) from that folder
     """
-    input_dir = os.path.dirname(os.path.abspath(base_file_path))
+    repo_root = find_repo_root(Path(base_file_path))
     path_append_matches = re.findall(r'sys\.path\.append\((["\'])(.*?)\1\)', content)
 
     for _, raw_path in path_append_matches:
-        # Resolve relative to input file's folder
-        abs_path = os.path.abspath(os.path.join(input_dir, raw_path))
-        if abs_path not in sys.path:
-            sys.path.append(abs_path)
+        last_folder = Path(raw_path).parts[-1]  # e.g., 'configs'
+        matching_dirs = list(repo_root.rglob(last_folder))
 
-        # Try module_name.py in that path
-        candidate_path = os.path.join(abs_path, f"{module_name}.py")
-        if os.path.exists(candidate_path):
-            spec = importlib.util.spec_from_file_location(module_name, candidate_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
+        for config_dir in matching_dirs:
+            if config_dir.is_dir():
+                candidate_path = config_dir / f"{module_name}.py"
+                if candidate_path.exists():
+                    spec = importlib.util.spec_from_file_location(module_name, str(candidate_path))
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    return module
 
-        # Try module_name/__init__.py
-        pkg_path = os.path.join(abs_path, module_name, "__init__.py")
-        if os.path.exists(pkg_path):
-            spec = importlib.util.spec_from_file_location(module_name, pkg_path)
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-
-    # Final fallback (if already on sys.path)
-    try:
-        spec = importlib.util.find_spec(module_name)
-        if spec and spec.origin:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            return module
-    except Exception:
-        pass
-
-    raise ImportError(f"Unable to locate or load module '{module_name}'")
+    raise ImportError(f"Could not resolve module '{module_name}' from sys.path.append() folders")
 
 
-    
-# ---- Step 2: Find import statements ----
-imported_modules = {}   # e.g., { 'config_file': 'config_file' }
-from_imports = {}       # e.g., { 'config_file': 'config.config_file' }
-
-# Match: import config_file
-for match in re.findall(r'^\s*import\s+([\w_]+)', content, re.MULTILINE):
-    imported_modules[match] = match
-
-# Match: from config import config_file
-for match in re.findall(r'^\s*from\s+([\w_\.]+)\s+import\s+([\w_]+)', content, re.MULTILINE):
-    full_module, alias = match
-    from_imports[alias] = f"{full_module}.{alias}"
-
-all_imports = {**imported_modules, **from_imports}
-
-# ---- Step 3: Load all imported modules ----
-loaded_modules = {}
-for alias, module_path in all_imports.items():
-    try:
-        module = resolve_module_from_sys_path(content, alias, input_file)
-        loaded_modules[alias] = module
-        print(f"&&&&&&&&& Loaded module: {alias} from {module.__file__}")
-        # spec = importlib.util.find_spec(module_path)
-        # if spec and spec.origin:
-        #     module = importlib.util.module_from_spec(spec)
-        #     spec.loader.exec_module(module)
-        #     loaded_modules[alias] = module
-    except Exception as e:
-        print(f"Warning: Could not load module '{module_path}': {e}")
-
-# ---- Step 4: Extract assignments like VAR = module.ATTR ----
-assignments = re.findall(r'^\s*(\w+)\s*=\s*([\w_]+)\.(\w+)', content, re.MULTILINE)
-# e.g., [('VAR', 'config_file', 'ATTR')]
-
-# ---- Step 5: Extract local literal assignments like VAR = "value" or VAR = 123 ----
-local_assignments = re.findall(r'^\s*(\w+)\s*=\s*([\'"]?[\w\./\- ]+[\'"]?)', content, re.MULTILINE)
-# Caution: regex won't handle complex values or multi-line strings
-
-# ---- Step 6: Build variable map ----
-variable_map = {}
-
-# Assignments from modules
-for var, module_alias, attr in assignments:
-    module = loaded_modules.get(module_alias)
-    if module and hasattr(module, attr):
-        variable_map[var] = getattr(module, attr)
-
-# Local literals
-for var, val in local_assignments:
-    if var not in variable_map:
-        cleaned = val.strip('\'"')  # remove quotes if any
-        variable_map[var] = cleaned
-
-# ---- Step 7: Show resolved vars ----
-for var, value in variable_map.items():
-    print(f"*** {var = } AND {value = }")
-print(f"{type(variable_map)}")
-# ---- Step 8: Replace placeholders ----
-def resolve_table_name(table_name):
-    for var, value in variable_map.items():
-        table_name = table_name.replace(f"{{{var}}}", value)
-    return table_name
-
-# ---- Example usage ----
-tablelist = [
-    "{BQ_DATASET}.T_340B_DIR_CLMS_CORAM_WP",
-    "{BQ_DATASET}.T_340B_PHCY_BLOCK_LIST",
-    "{BQ_DATASET_DR}.T_340B_CORAM_CLAIMS_ALL_DATA_tmp"
-]
-
-print("\n Starting")
-for table in tablelist:
-    t = resolve_table_name(table)
-    print(f"{table=} ---> {t=}")
+def find_repo_root(start_path: Path) -> Path:
+    """Walks upward to find the repo root (where .git or known files exist)."""
+    path = start_path.resolve()
+    while path != path.parent:
+        if (path / ".git").exists() or (path / "README.md").exists():
+            return path
+        path = path.parent
+    raise FileNotFoundError("Could not locate repo root from base path")
