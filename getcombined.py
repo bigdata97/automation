@@ -1,96 +1,63 @@
-import ast
-import csv
+import os
+import io
+import zipfile
+import shutil
 import re
 import requests
+from base64 import b64decode
 
-# --- Step 1: Extract table names from DAG content ---
-def extract_table_names_from_content(file_path, file_name, file_extension, content):
-    table_data = []
-    input_pattern = re.compile(r'\bFROM\s+([a-zA-Z0-9_\.]+)', re.IGNORECASE)
-    output_pattern = re.compile(r'\b(?:INSERT\s+INTO|CREATE\s+TABLE)\s+([a-zA-Z0-9_\.]+)', re.IGNORECASE)
+def process_git_repo(provider, base_url, org_name, repo_name, token, search_file, mode='filename', branch='main'):
+    """
+    Downloads and processes a GitHub/GitLab repo. 
+    Returns a list of matching files with content.
+    """
+    if provider.lower() == 'github':
+        api_url = f"{base_url}/repos/{org_name}/{repo_name}/zipball/{branch}"
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+    elif provider.lower() == 'gitlab':
+        encoded_project = f"{org_name}/{repo_name}".replace("/", "%2F")
+        api_url = f"{base_url}/api/v4/projects/{encoded_project}/repository/archive.zip?sha={branch}"
+        headers = {
+            "PRIVATE-TOKEN": token
+        }
+    else:
+        raise ValueError("Unsupported provider. Use 'github' or 'gitlab'.")
 
-    input_matches = input_pattern.findall(content)
-    for table in input_matches:
-        table_data.append((file_path, file_name, file_extension, table, "Input"))
+    # Step 1: Download ZIP
+    print(f"Downloading {provider} repo '{repo_name}' from {api_url}")
+    response = requests.get(api_url, headers=headers, stream=True)
+    if response.status_code != 200:
+        raise Exception(f"Failed to fetch zip: {response.status_code} {response.text}")
 
-    output_matches = output_pattern.findall(content)
-    for table in output_matches:
-        table_data.append((file_path, file_name, file_extension, table, "Output"))
+    # Step 2: Extract to temp folder
+    temp_root = os.path.join(os.getcwd(), f"temp_{repo_name}")
+    if os.path.exists(temp_root):
+        shutil.rmtree(temp_root)
 
-    if not input_matches and not output_matches:
-        table_data.append((file_path, file_name, file_extension, "No Matches", "N/A"))
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zip_ref:
+        zip_ref.extractall(temp_root)
 
-    return table_data
+    extracted_dir = os.path.join(temp_root, os.listdir(temp_root)[0])  # first extracted folder
+    dag_files = []
+    dag_num = 1
 
-# --- Step 2: Extract imports from DAG code ---
-STANDARD_MODULES = set(["os", "re", "csv", "sys", "time", "datetime"])
+    # Step 3: Walk and search files
+    for root, _, files in os.walk(extracted_dir):
+        for file in files:
+            file_path = os.path.join(root, file)
+            if mode.strip().lower() == 'filename' and re.search(search_file, file, re.IGNORECASE):
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                dag_files.append({
+                    "dag_num": dag_num,
+                    "filename": file,
+                    "content": content
+                })
+                dag_num += 1
 
-def extract_imports_from_code(content: str):
-    imported_modules = set()
-    tree = ast.parse(content)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                imported_modules.add(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imported_modules.add(node.module)
-
-    return list(imported_modules)
-
-# --- Step 3: List all .py files via GitHub API ---
-def list_all_python_files(git_base_url, org_name, repo_name, git_token):
-    headers = {
-        "Authorization": f"token {git_token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    response = requests.get(f"{git_base_url}/repos/{org_name}/{repo_name}", headers=headers)
-    default_branch = response.json().get("default_branch") if response.status_code == 200 else "main"
-
-    all_files = []
-    def traverse(path=""):
-        url = f"{git_base_url}/repos/{org_name}/{repo_name}/git/trees/{default_branch}?recursive=1"
-        response = requests.get(url, headers=headers)
-        if response.status_code != 200:
-            print(f"Failed to access {url}: {response.status_code}")
-            return
-
-        for item in response.json().get("tree", []):
-            if item["type"] == "blob" and item["path"].endswith(".py"):
-                all_files.append(item["path"])
-
-    traverse()
-    return all_files
-
-# --- Step 4: Process each file and extract table data ---
-def process_files(git_base_url, org_name, repo_name, git_token, output_csv):
-    all_py_files = list_all_python_files(git_base_url, org_name, repo_name, git_token)
-    headers = {
-        "Authorization": f"token {git_token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-
-    all_table_data = []
-
-    for file_path in all_py_files:
-        raw_url = f"https://raw.githubusercontent.com/{org_name}/{repo_name}/main/{file_path}"
-        response = requests.get(raw_url, headers=headers)
-        if response.status_code != 200:
-            continue
-
-        content = response.text
-        file_name = file_path.split("/")[-1]
-        file_extension = file_name.split(".")[-1]
-
-        table_rows = extract_table_names_from_content(file_path, file_name, file_extension, content)
-        all_table_data.extend(table_rows)
-
-    with open(output_csv, "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["FilePath", "FileName", "FileType", "Table Name", "Type of Table"])
-        writer.writerows(all_table_data)
-
-# --- Usage ---
-# process_files("https://api.github.com", "your_org", "your_repo", "your_token", "output_tables.csv")
+    # Step 4: Cleanup temp folder
+    shutil.rmtree(temp_root)
+    return dag_files
