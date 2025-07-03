@@ -1,0 +1,108 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Google Cloud Composer Overview</title>
+</head>
+<body>
+
+<h1>Google Cloud Composer - Architecture and Working Mechanism</h1>
+
+<p>Google Cloud Composer is a <strong>fully managed workflow orchestration service</strong> built on <strong>Apache Airflow</strong>, allowing you to author, schedule, and monitor pipelines across clouds and on-premises environments.</p>
+
+<hr>
+
+<h2>🎯 What is Cloud Composer?</h2>
+<ul>
+  <li><strong>Managed Apache Airflow:</strong> Google provisions and manages Airflow components.</li>
+  <li><strong>Serverless:</strong> No need to provision VMs manually.</li>
+  <li><strong>Integrated:</strong> Works seamlessly with GCP services like BigQuery, Dataflow, GCS, Pub/Sub, etc.</li>
+  <li><strong>Versioned:</strong> Composer environments are tied to specific Airflow versions.</li>
+</ul>
+
+<hr>
+
+<h2>🏗️ High-Level Architecture</h2>
+
+<p>Cloud Composer consists of:</p>
+<ol>
+  <li><strong>GKE Cluster:</strong> Underlying Kubernetes cluster where Airflow components run.</li>
+  <li><strong>Airflow Components:</strong>
+    <ul>
+      <li><strong>Web Server:</strong> Airflow UI.</li>
+      <li><strong>Scheduler:</strong> Triggers tasks based on DAG schedules.</li>
+      <li><strong>Workers:</strong> Execute Python tasks.</li>
+      <li><strong>Database:</strong> Cloud SQL for metadata storage.</li>
+      <li><strong>Redis/Celery:</strong> For task queuing in CeleryExecutor mode.</li>
+    </ul>
+  </li>
+  <li><strong>Cloud Storage Bucket:</strong> Stores DAGs, plugins, logs, and data dependencies.</li>
+  <li><strong>Cloud SQL:</strong> Relational DB to track Airflow metadata (DAG runs, task states).</li>
+  <li><strong>Google Cloud IAM:</strong> Manages access control to Composer environment resources.</li>
+  <li><strong>Logging & Monitoring:</strong> Stackdriver (Cloud Logging) collects logs; metrics go to Cloud Monitoring.</li>
+</ol>
+
+<hr>
+
+<h2>🧩 How It Works - Execution Flow</h2>
+<ol>
+  <li><strong>Author DAGs:</strong> Write Python DAG files and upload to the Composer bucket (<code>gs://.../dags</code>).</li>
+  <li><strong>Airflow Scheduler:</strong> Scans DAG directory and schedules tasks based on triggers.</li>
+  <li><strong>Task Queuing:</strong> Tasks are queued using Celery or Kubernetes Executors.</li>
+  <li><strong>Task Execution:</strong> Worker pods pick up tasks and execute them.</li>
+  <li><strong>Metadata & Logs:</strong> Stored in Cloud SQL and streamed to Cloud Logging + GCS.</li>
+  <li><strong>Monitoring:</strong> View DAG/task status in Airflow UI or Cloud Monitoring.</li>
+</ol>
+
+<hr>
+
+<h2>🎯 Key Benefits</h2>
+<ul>
+  <li>✅ Managed service</li>
+  <li>✅ Scalable and highly available</li>
+  <li>✅ Native GCP integrations</li>
+  <li>✅ Role-based access control with IAM</li>
+  <li>✅ Centralized logging and monitoring</li>
+</ul>
+
+<hr>
+
+<h2>📘 Official Documentation</h2>
+<ul>
+  <li><a href="https://cloud.google.com/composer/docs/overview">Cloud Composer Overview</a></li>
+  <li><a href="https://cloud.google.com/composer/docs/concepts/how-composer-works">How Cloud Composer Works</a></li>
+  <li><a href="https://airflow.apache.org/docs/apache-airflow/stable/index.html">Airflow Documentation</a></li>
+</ul>
+
+<hr>
+
+<h2>🎥 Recommended YouTube Resources</h2>
+<ul>
+  <li><a href="https://www.youtube.com/watch?v=xdK0jLJjt9M">Cloud Composer Overview (Google Cloud)</a></li>
+  <li><a href="https://www.youtube.com/watch?v=Hf3aH3EIS5Y">Orchestrate Workflows with Cloud Composer</a></li>
+  <li><a href="https://www.youtube.com/watch?v=cHATHSB_450">Introduction to Airflow (Astronomer)</a></li>
+</ul>
+
+<hr>
+
+<h2>🛠️ Best Practices</h2>
+<ul>
+  <li>Pin Python and Airflow versions for reproducibility.</li>
+  <li>Use GCS buckets for DAG and dependency storage.</li>
+  <li>Monitor environment health in Cloud Console.</li>
+  <li>Rotate service account keys securely.</li>
+  <li>Enable VPC Service Controls for data security.</li>
+</ul>
+
+<hr>
+
+<h2>🔗 Additional Resources</h2>
+<ul>
+  <li><a href="https://cloud.google.com/composer/pricing">Cloud Composer Pricing</a></li>
+  <li><a href="https://airflow.apache.org/docs/apache-airflow/stable/executor/index.html">Airflow Executors</a></li>
+  <li><a href="https://cloud.google.com/composer/docs/concepts/composer-security">Composer Security</a></li>
+</ul>
+
+</body>
+</html>
