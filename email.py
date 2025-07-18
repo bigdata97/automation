@@ -1,27 +1,17 @@
-Subject: Request for Consideration – Continued Opportunities at CVS via Ascendion
+Subject: Thank You – Signing Off Today
 
-Dear [Engineering Leader's Name],
+Dear Team,
 
-I hope this message finds you well.
+As today marks my last working day with the team, I wanted to take a moment to extend my heartfelt thanks to each of you. It has truly been a pleasure working alongside such talented, supportive, and dedicated individuals.
 
-I’m currently working with CVS Health through Ascendion Inc., and my present assignment is scheduled to conclude on July 18th. It’s been a great experience contributing to the team here, and I’m very enthusiastic about the work being done across the engineering organization at CVS.
+Over the course of my time here, I’ve grown not only professionally but personally, and a big part of that is thanks to the collaborative spirit and positive energy this team consistently brings. From tackling challenges together to celebrating milestones, I’ve genuinely appreciated every opportunity to learn and contribute.
 
-I’m presently working under the leadership of Muralikrishna from Ascendion Inc., and this engagement has provided me valuable exposure to CVS’s platforms, engineering culture, and cross-functional collaboration.
+While I am moving on to the next chapter of my journey, I’ll carry forward the experiences and lessons I’ve gained here. I'm incredibly grateful for all your support, encouragement, and camaraderie.
 
-I would also like to highlight that I am a Google Cloud Certified Engineer, with strong expertise in:
+Please do stay in touch — I’d love to cross paths again in the future.
 
-BigQuery, Cloud Composer, Dataflow, Dataproc, Spanner, and Pub/Sub
-
-Vertex AI Search & Chat, Apache Spark, Kafka
-
-Monitoring and alerting tools like Grafana and OpsGenie
-
-Given my background, experience, and familiarity with CVS’s systems, I would be truly grateful if you could consider me for any upcoming or existing opportunities within your team or across the broader CVS engineering organization.
-
-I’d be happy to share my resume or discuss further if there’s a potential fit. Thank you very much for your time and consideration.
+Wishing you all continued success and many more great achievements ahead!
 
 Warm regards,
 [Your Full Name]
-[Your Current Role – e.g., Data Engineer | CVS via Ascendion Inc.]
-[Your Email Address]
-[Your Phone Number – optional]
+[(Optional) Personal Email or LinkedIn]
