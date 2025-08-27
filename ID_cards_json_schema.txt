@@ -1,0 +1,302 @@
+customers (N110/N210 Customer Admin)
+db.createCollection("customers", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["customerNumber", "name", "address", "effectiveWindow", "status"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        customerNumber: { bsonType: "string", description: "CUST NO" },
+        parentCustomerNumber: { bsonType: ["string", "null"] },
+        name: { bsonType: "string", maxLength: 100 },
+        address: /* paste address schema */,
+        status: { bsonType: "string", description: "AAS status text e.g., ACTIVE/HISTORY" },
+        cfo: { bsonType: ["string", "null"], description: "Control Field Office code (3 chars)" },
+        ebr: { bsonType: ["string", "null"], description: "Employee Benefits Rep code (3 chars)" },
+        region: { bsonType: ["string", "null"] },
+        groupSize: { bsonType: ["string", "null"], description: "e.g., '1-9'" },
+        reinsurance: { bsonType: ["string", "null"] },
+        segment: { bsonType: ["string", "null"] },
+        eab: { bsonType: ["string", "null"] },
+        expRating: { bsonType: ["string", "null"] },
+        coordInitials: { bsonType: ["string", "null"] },
+        flag: { bsonType: ["string", "null"] },
+        persConf: { enum: ["N", "Y", null] },
+        telephone: { bsonType: ["string", "null"] },
+        effectiveWindow: /* paste effectiveWindow schema */,
+        admin: { bsonType: ["string", "null"], description: "ADM initials/code" },
+        audit: /* paste audit schema */
+      }
+    }
+  }
+});
+
+db.customers.createIndex({ customerNumber: 1 }, { unique: true });
+db.customers.createIndex({ "address.state": 1, region: 1 });
+
+controls (N120/N220 Control Admin)
+db.createCollection("controls", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["controlNumber", "customerNumber", "controlName", "effectiveWindow"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        controlNumber: { bsonType: "string" },
+        customerNumber: { bsonType: "string" },  // FK to customers.customerNumber
+        controlName: { bsonType: "string" },
+        address: /* paste address schema */,
+        holdBill: { enum: ["Y", "N", null] },
+        suffixAccounts: {
+          bsonType: "array",
+          items: { bsonType: "string", description: "e.g., '015-00000-01'" }
+        },
+        persConf: { enum: ["N", "Y", null] },
+        region: { bsonType: ["string", "null"] },
+        profitCenter: { bsonType: ["string", "null"] },
+        status: { bsonType: ["string", "null"] },
+        effectiveWindow: /* paste effectiveWindow schema */,
+        admin: { bsonType: ["string", "null"] },
+        audit: /* paste audit schema */
+      }
+    }
+  }
+});
+
+db.controls.createIndex({ controlNumber: 1 }, { unique: true });
+db.controls.createIndex({ customerNumber: 1 });
+
+
+claimAccounts (N150/N250 Claim Account Admin)
+db.createCollection("claimAccounts", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["csa", "status", "effectiveWindow", "accountName"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        csa: /* paste csa schema */,
+        customerNumber: { bsonType: "string" },
+        controlNumber: { bsonType: "string" },
+        accountName: { bsonType: "string" },
+        status: { bsonType: "string" },
+        sfo: { bsonType: ["string", "null"], description: "Servicing Field Office 3-char code" },
+        ebr: { bsonType: ["string", "null"] },
+        region: { bsonType: ["string", "null"] },
+        pendIndicator: { enum: ["Y", "N", null] },
+        creditLimitProd: { bsonType: ["string", "null"] },
+        beneficiaryRequired: { enum: ["0", "1", "2", "Y", "N", null] },
+        editBypass: { bsonType: ["string", "null"] },
+        primaryEmployeeLocationZip: { bsonType: ["string", "null"] },
+        specialMailInd: { bsonType: ["string", "null"] },
+        sponsoredDeps: { enum: ["Y", "N", null] },
+        expDepsReport: { bsonType: ["string", "null"] },   // EXP DEPS RPT
+        elrCustomerCodeInd: { enum: ["Y", "N", null] },
+        depOnlyAccount: { enum: ["Y", "N", null] },
+        mcReportMethod: { bsonType: ["string", "null"], description: "e.g., 3 for OA MC/QA etc." },
+        enrolleeCdinRpt: { enum: ["Y", "N", null] },
+        familyDedRpt: { enum: ["Y", "N", null] },
+        familyCoinRpt: { enum: ["Y", "N", null] },
+        retiredAcct: { enum: ["Y", "N", null] },
+        salaryMedicalRpt: { enum: ["Y", "N", null] },
+        restructure: {
+          bsonType: "object",
+          properties: {
+            indicator: { enum: ["Y", "N", null] },
+            date: { bsonType: ["date", "null"] }
+          }
+        },
+        sbmEditingRequired: { enum: ["Y", "N", null] },
+        claimOfficeCode: { bsonType: ["string", "null"] },
+        cobCoverageReport: { enum: ["Y", "N", "N/A", "N", null] },
+        csaReportMethod: { bsonType: ["string", "null"], description: "1=PSA,2=ELR,3=EZLINK,4=EZENROLL" },
+        depCharInfo: { bsonType: ["string", "null"], description: "Y/N; whether dependents exist" },
+        effectiveWindow: /* paste effectiveWindow schema */,
+        admin: { bsonType: ["string", "null"] },
+        notes: { bsonType: ["string", "null"] },
+        audit: /* paste audit schema */
+      }
+    }
+  }
+});
+
+db.claimAccounts.createIndex({ "csa.composite": 1 }, { unique: true, sparse: true });
+db.claimAccounts.createIndex({ "csa.control": 1, "csa.suffix": 1, "csa.account": 1 });
+db.claimAccounts.createIndex({ customerNumber: 1 });
+
+
+
+enrolleeProducts (N152/N252, N153/N253)
+db.createCollection("enrolleeProducts", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["csa", "accountName"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        csa: /* paste csa schema */,
+        customerNumber: { bsonType: ["string", "null"] },
+        accountName: { bsonType: "string" },
+        product: {
+          bsonType: "object",
+          properties: {
+            isProduct: { enum: ["Y", "N", null] },   // A Product
+            code: { bsonType: ["string", "null"] },
+            frequency: { bsonType: ["string", "null"] } // e.g., "0" N/A, standard small group
+          }
+        },
+        earningsInsCode: { bsonType: ["string", "null"] },
+        changeApplication: { enum: ["Y", "N", null] },
+        workRule: { bsonType: ["string", "null"] },
+        force: { enum: ["Y", "N", null] },
+        ageAdjust: {
+          bsonType: "object",
+          properties: {
+            enabled: { enum: ["Y", "N", null] },
+            ages: {
+              bsonType: "array",
+              items: { bsonType: "int" },
+              description: "E.g., [65,70,75] by line of business"
+            }
+          }
+        },
+        auditList: { bsonType: ["string", "null"] },
+        effectiveWindow: /* paste effectiveWindow schema */,
+        admin: { bsonType: ["string", "null"] },
+        audit: /* paste audit schema */
+      }
+    }
+  }
+});
+
+db.enrolleeProducts.createIndex({ "csa.composite": 1 });
+
+
+
+idCards (N155/N255, N156/N256, N157/N257)
+db.createCollection("idCards", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["csa", "cardForm"],
+      properties: {
+        _id: { bsonType: "objectId" },
+        csa: /* paste csa schema */,
+        customerNumber: { bsonType: ["string", "null"] },
+        productFamily: { bsonType: ["string", "null"], description: "PPO Medical, PPO Dental, etc." },
+        aProduct: { enum: ["Y", "N", null"], description: "Treat ID cards as product" },
+
+        // N155/N255
+        cardForm: {
+          bsonType: "object",
+          required: ["number", "status"],
+          properties: {
+            number: { bsonType: "string" },
+            status: { enum: ["ACT", "CANC", null] },
+            variation: { enum: ["N", "Y", null] }
+          }
+        },
+        production: {
+          bsonType: "object",
+          properties: {
+            frequency: { bsonType: ["string", "null"], description: "e.g., '3' On Activity" },
+            sequence:  { bsonType: ["string", "null"], description: "e.g., '01' Last Name" },
+            mailOption: { bsonType: ["string", "null"], description: "Direct Mail/Bulk" },
+            force: { enum: ["Y", "N", null] },
+            level: { bsonType: ["string", "null"] }
+          }
+        },
+        branding: {
+          bsonType: "object",
+          properties: {
+            customerLogo1: { bsonType: ["string", "null"] },
+            logoDisplay: { bsonType: ["string", "null"] } // SUPPR/NEIC/etc
+          }
+        },
+        copayCoins: {
+          bsonType: "object",
+          properties: {
+            copayOverrideInd: { bsonType: ["string", "null"] },
+            physOV: { bsonType: ["string", "null"] },
+            spc: { bsonType: ["string", "null"] }
+          }
+        },
+        includeExclude: { enum: ["A", "E", "I", "Y", "N", null], description: "Inc/Exc across platforms" },
+
+        // N156/N256 – wording & name rules
+        nameRules: {
+          bsonType: "object",
+          properties: {
+            phNameSelector: { bsonType: ["string", "null"] }, // 001,004,005
+            phNameOver: { bsonType: ["string", "null"] },
+            nameDisplay: { bsonType: ["string", "null"], description: "e.g., FULL NAME (2)" }
+          }
+        },
+        idWording: {
+          bsonType: "object",
+          properties: {
+            front: { bsonType: ["string", "null"] },
+            back:  { bsonType: ["string", "null"] }
+          }
+        },
+        prompts: {
+          bsonType: "object",
+          properties: {
+            csaPrompt: { bsonType: ["string", "null"] },
+            ssnPrompt: { bsonType: ["string", "null"] },
+            eeNamePrompt: { bsonType: ["string", "null"] },
+            depCoveredInd: { enum: ["Y", "N", null] },
+            dedCoinDisplay: { enum: ["Y", "N", null] },
+            payorPromptDisp: { bsonType: ["string", "null"] }
+          }
+        },
+
+        // N157/N257 – claim office & phone
+        claimOffice: {
+          bsonType: "object",
+          properties: {
+            code: { bsonType: ["string", "null"] },
+            name: { bsonType: ["string", "null"] },
+            address: /* paste address schema */,
+            memberServicesPhone: { bsonType: ["string", "null"] },
+            indPromptTable: { bsonType: ["string", "null"] }
+          }
+        },
+
+        effectiveWindow: /* paste effectiveWindow schema */,
+        admin: { bsonType: ["string", "null"] },
+        audit: /* paste audit schema */
+      }
+    }
+  }
+});
+
+db.idCards.createIndex({ "csa.composite": 1 });
+db.idCards.createIndex({ "cardForm.number": 1, "cardForm.status": 1 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
