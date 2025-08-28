@@ -420,3 +420,338 @@ db.createCollection("Control", {
 
 db.Control.createIndex({ orgId: 1, code: 1, effectiveFrom: -1 })
 
+====================================================================
+
+1) Customer
+
+Stores person identity (name/DOB), unique member identifiers, and validated mailing addresses.
+Anchors effective coverages via links to EnrolleeProducts; drives where the physical card is mailed.
+Relates to EmployerGroup and BillingAccount for context; referenced by IDCard.
+
+orgId
+
+person.firstName
+
+person.middleName
+
+person.lastName
+
+person.dob
+
+person.gender
+
+identifiers.memberId
+
+identifiers.subscriberId
+
+addresses[]
+
+addresses[].type
+
+addresses[].line1
+
+addresses[].line2
+
+addresses[].city
+
+addresses[].state
+
+addresses[].zip
+
+addresses[].validated
+
+relationships.employerGroupId
+
+relationships.billingAccountId
+
+coverages[]
+
+coverages[].enrolleeProductId
+
+coverages[].effectiveFrom
+
+coverages[].effectiveTo
+
+coverages[].status
+
+createdAt
+
+updatedAt
+
+2) EmployerGroup
+
+Holds group/sponsor details that influence branding, card text, and support contacts.
+Group number on card helps providers route claims and identify the plan.
+Referenced by Customer and EnrolleeProducts; indirectly influences Template selection.
+
+orgId
+
+groupNumber
+
+name
+
+branding.logoRef
+
+branding.colorHex
+
+contact.phone
+
+contact.url
+
+createdAt
+
+updatedAt
+
+3) BillingAccount
+
+Represents subscriber billing context and preferences (paperless, statement timing).
+May drive address or print suppression rules based on enterprise policies.
+Linked from Customer; not usually printed but relevant to mail/ops logic.
+
+orgId
+
+accountNumber
+
+suffix
+
+status
+
+preferences.paperless
+
+preferences.statementDay
+
+createdAt
+
+updatedAt
+
+4) Plan
+
+Master product definition (HMO/PPO/EPO/POS), LOB, state, and effective ranges.
+Plan metadata affects Template selection and compliance phrasing.
+Referenced by EnrolleeProducts and Benefits to resolve what prints.
+
+orgId
+
+planCode
+
+name
+
+lob
+
+type
+
+state
+
+effectiveFrom
+
+effectiveTo
+
+createdAt
+
+updatedAt
+
+5) Benefits
+
+Card-facing copays and Rx routing (BIN/PCN/Group) scoped by plan/network/state.
+Effective-dated so historical reprints reflect the exact terms at the time.
+Joined by DTO builder using EnrolleeProducts → Plan/Network/State.
+
+orgId
+
+planId
+
+networkId
+
+state
+
+copays.pcp
+
+copays.specialist
+
+copays.er
+
+copays.urgentCare
+
+coinsuranceText
+
+rx.bin
+
+rx.pcn
+
+rx.group
+
+rx.issuer
+
+effectiveFrom
+
+effectiveTo
+
+createdAt
+
+updatedAt
+
+6) Network
+
+Provider network brand and display aliases used on the printed card.
+Helps providers recognize the member’s in-network access.
+Referenced by EnrolleeProducts and Benefits for accurate branding.
+
+orgId
+
+code
+
+name
+
+printAliases[]
+
+createdAt
+
+updatedAt
+
+7) EnrolleeProducts
+
+Effective-dated enrollment line linking a Customer to Plan/Network/Group.
+May include PCP info when required by product/state rules (often HMO).
+Primary driver for “cardable” changes; referenced by Customer and IDCard.
+
+orgId
+
+customerId
+
+planId
+
+networkId
+
+groupId
+
+effectiveFrom
+
+effectiveTo
+
+status
+
+pcp.npi
+
+pcp.name
+
+pcp.phone
+
+createdAt
+
+updatedAt
+
+8) Template
+
+Versioned front/back assets and field bindings that render the card.
+Chosen by rule engine based on LOB/state/plan/group variants.
+Referenced by IDCard; version locks for audit/reprints.
+
+orgId
+
+code
+
+lob
+
+state
+
+version
+
+frontSvgRef
+
+backSvgRef
+
+fields[]
+
+fields[].key
+
+fields[].x
+
+fields[].y
+
+fields[].font
+
+fields[].binding
+
+createdAt
+
+updatedAt
+
+9) IDCard
+
+Authoritative card record with immutable render.dto snapshot for audit/reprints.
+Tracks lifecycle status (QUEUED→RENDERED→SENT_TO_VENDOR→DELIVERED/FAILED).
+Links to Customer, EnrolleeProducts, Template, and (later) PrintJob.
+
+orgId
+
+customerId
+
+enrolleeProductId
+
+templateId
+
+reason
+
+status
+
+render.templateCode
+
+render.templateVersion
+
+render.dto
+
+render.assetRefs[]
+
+digitalCardUrl
+
+printJobId
+
+createdAt
+
+updatedAt
+
+10) PrintJob
+
+Operational batch/on-demand package for vendor print submission.
+Tracks counts, file references, and vendor confirmation/job IDs.
+Referenced by IDCard to tie individual cards to the batch they shipped in.
+
+orgId
+
+type
+
+status
+
+batchDate
+
+counts.total
+
+counts.failed
+
+vendorFileRef
+
+tracking.vendorJobId
+
+createdAt
+
+updatedAt
+
+11) Control
+
+Centralized configuration and compliance text (payer IDs, phones, URLs, disclaimers).
+Lets ops/compliance update messaging without code/template redeploys.
+Read by DTO builder and renderer; influences what prints globally or per state.
+
+orgId
+
+code
+
+value
+
+effectiveFrom
+
+effectiveTo
+
+createdAt
+
+updatedAt
