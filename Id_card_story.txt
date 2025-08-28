@@ -1,0 +1,39 @@
+The End-to-End Story (day-in-the-life)
+
+Enrollment lands
+HR files (834/CSV/API) arrive for a new hire in Texas. Your ingest app validates the file, normalizes dates, and upserts:
+
+Customer (the person and their addresses/IDs)
+
+EnrolleeProducts (the person’s active plan/network/group with effective dates)
+
+“Cardable change” detected (event/rules)
+A rules service compares “before vs after.” New ACTIVE coverage or a plan/network/state change is cardable. It picks a Template based on LOB (Commercial), state (TX), group branding, and product type (PPO).
+
+Build the render DTO
+DTO Builder joins reference data (Plan, Benefits, Network, EmployerGroup, Control) with the member’s coverage to compute user-friendly lines like:
+“PCP $25 | Spec $50 | ER $300 | UC $75” and “BIN 610591 | PCN ADV | Group RX123”.
+
+Record the card
+The service writes an IDCard document with a snapshot of the computed DTO and the chosen template/version. Status: QUEUED.
+
+Batch & render
+Nightly, the Batcher finds QUEUED IDCards, groups them into a PrintJob, renders front/back PDFs per template, packages a vendor file, sends to the print vendor (SFTP/API), and updates statuses along the way.
+
+Digital instant card
+At the same time the IDCard is created, a digital card URL is generated for the portal/app, so members can use it immediately—no need to wait for the mail.
+
+Tracking & audit
+Vendor confirms receipt → PrintJob status moves to SENT/CONFIRMED. Delivery scans can update IDCard to DELIVERED. Reprints later reuse the IDCard.render.dto snapshot to ensure exact replicas.
+
+
+| Step                 | Reads                                                                           | Writes                                               | Purpose                                                   |
+| -------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------- |
+| Enrollment upsert    | EmployerGroup, Plan, Network (optional lookups to validate keys)                | **Customer**, **EnrolleeProducts**, (BillingAccount) | Establish the person and active coverage lines            |
+| Rule/Template select | Customer, **EnrolleeProducts**, Plan, Network, EmployerGroup                    | —                                                    | Decide **if** a card is needed now and **which Template** |
+| Build DTO            | **Benefits**, Plan, Network, EmployerGroup, Control, Customer, EnrolleeProducts | —                                                    | Compute human-readable lines for the card                 |
+| Create card          | Template                                                                        | **IDCard** (with `render.dto`)                       | Persist immutable snapshot; set `status=QUEUED`           |
+| Batch & render       | **IDCard** (QUEUED), Template                                                   | **PrintJob**, update **IDCard** statuses             | Package, send to vendor, track lifecycle                  |
+| Digital card         | —                                                                               | update **IDCard.digitalCardUrl** (at creation time)  | Instant member access                                     |
+
+
