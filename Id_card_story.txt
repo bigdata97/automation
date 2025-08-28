@@ -37,3 +37,386 @@ Vendor confirms receipt → PrintJob status moves to SENT/CONFIRMED. Delivery sc
 | Digital card         | —                                                                               | update **IDCard.digitalCardUrl** (at creation time)  | Instant member access                                     |
 
 
+1) Customer
+
+Purpose: One doc per person (subscriber/dependent). Anchor for identity, address, and current coverages.
+
+db.createCollection("Customer", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","person","identifiers","addresses","createdAt","updatedAt"],
+      properties: {
+        orgId: { bsonType: "string" },
+        person: {
+          bsonType: "object",
+          required: ["firstName","lastName","dob"],
+          properties: {
+            firstName: { bsonType: "string" },
+            lastName:  { bsonType: "string" },
+            dob:       { bsonType: "date" }
+          }
+        },
+        identifiers: {
+          bsonType: "object",
+          required: ["memberId"],
+          properties: {
+            memberId:   { bsonType: "string" },
+            subscriberId:{ bsonType: "string" }
+          }
+        },
+        addresses: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["type","line1","city","state","zip"],
+            properties: {
+              type: { enum: ["HOME","MAILING"] },
+              line1:{ bsonType: "string" },
+              city: { bsonType: "string" },
+              state:{ bsonType: "string" },
+              zip:  { bsonType: "string" },
+              validated: { bsonType: "bool" }
+            }
+          }
+        },
+        coverages: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["enrolleeProductId","effectiveFrom","status"],
+            properties: {
+              enrolleeProductId: { bsonType: "objectId" },
+              effectiveFrom: { bsonType: "date" },
+              effectiveTo:   { bsonType: "date" },
+              status: { enum: ["ACTIVE","PENDING","TERMINATED"] }
+            }
+          }
+        },
+        createdAt: { bsonType: "date" },
+        updatedAt: { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Customer.createIndex({ orgId: 1, "identifiers.memberId": 1 }, { unique: true })
+db.Customer.createIndex({ orgId: 1, "relationships.employerGroupId": 1 })
+db.Customer.createIndex({ "person.lastName": 1, "person.firstName": 1, "person.dob": 1 })
+
+
+2) EmployerGroup
+
+Purpose: Group (sponsor) metadata: branding, group number, support contacts.
+
+db.createCollection("EmployerGroup", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","groupNumber","name","createdAt","updatedAt"],
+      properties: {
+        orgId:       { bsonType: "string" },
+        groupNumber: { bsonType: "string" },
+        name:        { bsonType: "string" },
+        branding: {
+          bsonType: "object",
+          properties: { logoRef: { bsonType: "string" }, colorHex: { bsonType: "string" } }
+        },
+        contact: {
+          bsonType: "object",
+          properties: { phone: { bsonType:"string" }, url: { bsonType:"string" } }
+        },
+        createdAt:   { bsonType: "date" },
+        updatedAt:   { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.EmployerGroup.createIndex({ orgId: 1, groupNumber: 1 }, { unique: true })
+
+3) BillingAccount
+
+Purpose: Subscriber billing context; can influence address/suppression rules.
+
+db.createCollection("BillingAccount", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","accountNumber","status","createdAt","updatedAt"],
+      properties: {
+        orgId:         { bsonType: "string" },
+        accountNumber: { bsonType: "string" },
+        suffix:        { bsonType: "string" },
+        status:        { enum: ["OPEN","CLOSED","SUSPENDED"] },
+        preferences: {
+          bsonType: "object",
+          properties: { paperless: { bsonType:"bool" }, statementDay: { bsonType:"int" } }
+        },
+        createdAt:     { bsonType: "date" },
+        updatedAt:     { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.BillingAccount.createIndex({ orgId: 1, accountNumber: 1, suffix: 1 }, { unique: true })
+
+4) Plan
+
+Purpose: Product master—type (HMO/PPO), LOB, state. Drives template & compliance.
+
+db.createCollection("Plan", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","planCode","name","lob","type","createdAt","updatedAt"],
+      properties: {
+        orgId:    { bsonType: "string" },
+        planCode: { bsonType: "string" },
+        name:     { bsonType: "string" },
+        lob:      { enum: ["COMMERCIAL","MEDICARE","MEDICAID","EXCHANGE"] },
+        type:     { enum: ["HMO","PPO","EPO","POS"] },
+        state:    { bsonType: "string" },
+        effectiveFrom: { bsonType: "date" },
+        effectiveTo:   { bsonType: "date" },
+        createdAt: { bsonType: "date" },
+        updatedAt: { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Plan.createIndex({ orgId: 1, planCode: 1, state: 1, effectiveFrom: 1 })
+
+5) Benefits
+
+Purpose: What prints on the card (copays) + Rx routing (BIN/PCN/Group). Effective-dated by plan/network/state.
+
+db.createCollection("Benefits", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","planId","copays","rx","effectiveFrom","createdAt","updatedAt"],
+      properties: {
+        orgId:   { bsonType: "string" },
+        planId:  { bsonType: "objectId" },
+        networkId: { bsonType: "objectId" },
+        state:   { bsonType: "string" },
+        copays: {
+          bsonType: "object",
+          properties: {
+            pcp:        { bsonType: "string" },
+            specialist: { bsonType: "string" },
+            er:         { bsonType: "string" },
+            urgentCare: { bsonType: "string" }
+          }
+        },
+        rx: {
+          bsonType: "object",
+          properties: {
+            bin:    { bsonType: "string" },
+            pcn:    { bsonType: "string" },
+            group:  { bsonType: "string" },
+            issuer: { bsonType: "string" }
+          }
+        },
+        coinsuranceText: { bsonType: "string" },
+        effectiveFrom:   { bsonType: "date" },
+        effectiveTo:     { bsonType: "date" },
+        createdAt:       { bsonType: "date" },
+        updatedAt:       { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Benefits.createIndex({ orgId: 1, planId: 1, networkId: 1, state: 1, effectiveFrom: 1 })
+
+6) Network
+
+Purpose: Provider network branding/aliases that appear on card.
+
+db.createCollection("Network", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","code","name","createdAt","updatedAt"],
+      properties: {
+        orgId: { bsonType: "string" },
+        code:  { bsonType: "string" },
+        name:  { bsonType: "string" },
+        printAliases: { bsonType: "array", items: { bsonType: "string" } },
+        createdAt: { bsonType: "date" },
+        updatedAt: { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Network.createIndex({ orgId: 1, code: 1 }, { unique: true })
+
+7) EnrolleeProducts
+
+Purpose: Effective-dated coverage row linking a Customer to Plan/Network/Group (and optional PCP).
+
+db.createCollection("EnrolleeProducts", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","customerId","planId","effectiveFrom","status","createdAt","updatedAt"],
+      properties: {
+        orgId:      { bsonType: "string" },
+        customerId: { bsonType: "objectId" },
+        planId:     { bsonType: "objectId" },
+        networkId:  { bsonType: "objectId" },
+        groupId:    { bsonType: "objectId" },
+        effectiveFrom: { bsonType: "date" },
+        effectiveTo:   { bsonType: "date" },
+        status:     { enum: ["ACTIVE","PENDING","TERMINATED"] },
+        pcp: {
+          bsonType: "object",
+          properties: { npi: { bsonType: "string" }, name: { bsonType: "string" }, phone: { bsonType: "string" } }
+        },
+        createdAt:  { bsonType: "date" },
+        updatedAt:  { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.EnrolleeProducts.createIndex({ orgId: 1, customerId: 1, effectiveFrom: -1 })
+db.EnrolleeProducts.createIndex({ orgId: 1, planId: 1, networkId: 1 })
+
+8) Template
+
+Purpose: Versioned card layout (front/back assets) + field bindings → DTO.
+
+db.createCollection("Template", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","code","lob","state","version","fields","createdAt","updatedAt"],
+      properties: {
+        orgId:   { bsonType: "string" },
+        code:    { bsonType: "string" },
+        lob:     { enum: ["COMMERCIAL","MEDICARE","MEDICAID","EXCHANGE"] },
+        state:   { bsonType: "string" },
+        version: { bsonType: "int" },
+        frontSvgRef: { bsonType: "string" },
+        backSvgRef:  { bsonType: "string" },
+        fields: {
+          bsonType: "array",
+          items: {
+            bsonType: "object",
+            required: ["key","x","y","font","binding"],
+            properties: {
+              key:     { bsonType: "string" },
+              x:       { bsonType: "double" },
+              y:       { bsonType: "double" },
+              font:    { bsonType: "string" },
+              binding: { bsonType: "string" } // JSONPath-like into render DTO
+            }
+          }
+        },
+        createdAt:{ bsonType: "date" },
+        updatedAt:{ bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Template.createIndex({ orgId: 1, code: 1, lob: 1, state: 1, version: -1 })
+
+9) IDCard
+
+Purpose: The card record + immutable render snapshot for audit/reprints; lifecycle status.
+
+db.createCollection("IDCard", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","customerId","enrolleeProductId","templateId","status","render","createdAt","updatedAt"],
+      properties: {
+        orgId:            { bsonType: "string" },
+        customerId:       { bsonType: "objectId" },
+        enrolleeProductId:{ bsonType: "objectId" },
+        templateId:       { bsonType: "objectId" },
+        reason:           { enum: ["NEW_ENROLLMENT","REISSUE","ADDRESS_CHANGE","REPLACEMENT","RENEWAL"] },
+        status:           { enum: ["QUEUED","RENDERED","SENT_TO_VENDOR","DELIVERED","FAILED"] },
+        render: {
+          bsonType: "object",
+          required: ["dto","templateCode","templateVersion"],
+          properties: {
+            dto:             { bsonType: "object" },
+            templateCode:    { bsonType: "string" },
+            templateVersion: { bsonType: "int" },
+            assetRefs:       { bsonType: "array", items: { bsonType: "string" } }
+          }
+        },
+        digitalCardUrl: { bsonType: "string" },
+        printJobId:     { bsonType: "objectId" },
+        createdAt:      { bsonType: "date" },
+        updatedAt:      { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.IDCard.createIndex({ orgId: 1, customerId: 1, createdAt: -1 })
+db.IDCard.createIndex({ orgId: 1, status: 1, createdAt: -1 })
+db.IDCard.createIndex({ orgId: 1, printJobId: 1 })
+
+10) PrintJob
+
+Purpose: Operational batching/packaging and vendor handoff + confirmations.
+
+db.createCollection("PrintJob", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","type","status","batchDate","createdAt","updatedAt"],
+      properties: {
+        orgId:   { bsonType: "string" },
+        type:    { enum: ["BATCH","ON_DEMAND"] },
+        status:  { enum: ["CREATED","PACKAGED","SENT","CONFIRMED","FAILED"] },
+        batchDate: { bsonType: "date" },
+        counts: {
+          bsonType: "object",
+          properties: { total: { bsonType:"int" }, failed: { bsonType:"int" } }
+        },
+        vendorFileRef: { bsonType: "string" },
+        tracking: { bsonType: "object", properties: { vendorJobId: { bsonType:"string" } } },
+        createdAt:{ bsonType: "date" },
+        updatedAt:{ bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.PrintJob.createIndex({ orgId: 1, batchDate: -1, status: 1 })
+
+11) Control
+
+Purpose: Centralized config/compliance (payer ID, standard phones/URLs, disclaimers).
+
+db.createCollection("Control", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      required: ["orgId","code","value","createdAt","updatedAt"],
+      properties: {
+        orgId: { bsonType: "string" },
+        code:  { bsonType: "string" },   // e.g., "PAYER_ID", "SUPPORT_PHONE_DEFAULT", "TX_DISCLAIMER"
+        value: { bsonType: "object" },   // arbitrary JSON payload
+        effectiveFrom: { bsonType: "date" },
+        effectiveTo:   { bsonType: "date" },
+        createdAt: { bsonType: "date" },
+        updatedAt: { bsonType: "date" }
+      }
+    }
+  }
+})
+
+db.Control.createIndex({ orgId: 1, code: 1, effectiveFrom: -1 })
+
